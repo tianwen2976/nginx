@@ -173,6 +173,16 @@ static char        *ngx_signal;
 static char **ngx_os_environ;
 
 
+//1.时间、正则、错误日志、ssl等初始化
+//2.读入命令行参数
+//3.OS相关初始化
+//4.读入并解析配置
+//5.核心模块初始化
+//6.创建各种临时文件和目录
+//7.创建共享内存
+//8.打开listen的端口
+//9.所有模块初始化
+//10.启动worker进程
 int ngx_cdecl
 main(int argc, char *const *argv)
 {
@@ -189,7 +199,8 @@ main(int argc, char *const *argv)
         return 1;
     }
 
-    if (ngx_get_options(argc, argv) != NGX_OK) {
+    //获取参数和配置参数，比如命令是nginx -v 那么ngx_show_version就设置为1
+    if (ngx_get_options(argc, argv) != NGX_OK) { //解析命令参数
         return 1;
     }
 
@@ -260,7 +271,7 @@ main(int argc, char *const *argv)
 
     /* TODO */ ngx_max_sockets = -1;
 
-    ngx_time_init();
+    ngx_time_init(); //初始化nginx环境的当前时间
 
 #if (NGX_PCRE)
     ngx_regex_init();
@@ -672,6 +683,25 @@ ngx_exec_new_binary(ngx_cycle_t *cycle, char *const *argv)
 }
 
 
+/*
+ * Command-line parameters
+ * nginx supports the following command-line parameters: 
+ * ?-? | -h — print help for command-line parameters. 
+ * ?-c file — use an alternative configuration file instead of a default file. 
+ * ?-g directives — set global configuration directives, for example, 
+ * nginx -g "pid /var/run/nginx.pid; worker_processes `sysctl -n hw.ncpu`;"
+ * ?-p prefix — set nginx path prefix, i.e. a directory that will keep server files (default value is /usr/local/nginx). 
+ * ?-q — suppress non-error messages during configuration testing. 
+ * ?-s signal — send a signal to the master process. The argument signal can be one of: 
+ * ?stop — shut down quickly 
+ * ?quit — shut down gracefully 
+ * ?reload — reload configuration, start the new worker process with a new configuration, gracefully shut down old worker processes. 
+ * ?reopen — reopen log files 
+ * ?-t — test the configuration file: nginx checks the configuration for correct syntax, and then tries to open files referred in the configuration. 
+ * ?-T — same as -t, but additionally dump configuration files to standard output (1.9.2). 
+ * ?-v — print nginx version. 
+ * ?-V — print nginx version, compiler version, and configure parameters. 
+ * */
 static ngx_int_t
 ngx_get_options(int argc, char *const *argv)
 {

@@ -42,6 +42,7 @@ ngx_strerror(ngx_err_t err, u_char *errstr, size_t size)
 }
 
 
+//获取error 0-NGX_SYS_NERR对应的描述字符串
 ngx_int_t
 ngx_strerror_init(void)
 {
@@ -56,6 +57,8 @@ ngx_strerror_init(void)
      */
 
     len = NGX_SYS_NERR * sizeof(ngx_str_t);
+    //计算长度,注意NGX_SYS_NERR不是在src里面的，而是编译的时候根据操作系统的不同而生成的不内容，
+    //这里是在objs/ngx_auto_config.h里面，定义为:135。
 
     ngx_sys_errlist = malloc(len);
     if (ngx_sys_errlist == NULL) {
