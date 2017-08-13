@@ -108,11 +108,17 @@ struct ngx_module_s {
     ngx_uint_t            spare2;
     ngx_uint_t            spare3;
 
-    ngx_uint_t            version;
+    ngx_uint_t            version; //nginx模块版本
 
+	/*模块的上下文，不同种类的模块有不同的上下文，因此实现了四种结构体*/
     void                 *ctx;
     ngx_command_t        *commands;
-    ngx_uint_t            type;
+	/*命令定义地址
+	模块的指令集
+	每一个指令在源码中对应着一个ngx_command_t结构变量
+	*/
+	
+    ngx_uint_t            type; //模块类型，用于区分core event http和mail
 
     ngx_int_t           (*init_master)(ngx_log_t *log);
 

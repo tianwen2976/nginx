@@ -332,6 +332,7 @@ main(int argc, char *const *argv)
         ngx_modules[i]->index = ngx_max_module++;
     }
 
+	// ngx_cycle.c
     cycle = ngx_init_cycle(&init_cycle);
     if (cycle == NULL) {
         if (ngx_test_config) {
@@ -429,7 +430,18 @@ main(int argc, char *const *argv)
     return 0;
 }
 
-
+/*
+在执行不重启服务升级Nginx的操作时，老的Nginx进程会通过环境变量“NGINX”来传递需要打开的监听端口，
+新的Nginx进程会通过ngx_add_inherited_sockets方法来使用已经打开的TCP监听端口,不采用这种方式的话会报错，说该端口已经bind   
+ngx_add_inherited_sockets 函数通过环境变量NGINX完成socket的继承，继承来的socket将会放到init_cycle的listening数组中。在NGINX环
+境变量中，每个socket中间用冒号或分号隔开。完成继承同时设置全局变量ngx_inherited为1
+*/
+/*  
+Nginx在不重启服务升级时，也就是我们说过的平滑升级时，它会不重启master进程而启动新版本的Nginx程序。这样，旧版本的
+master进程会通过execve系统调用来启动新版本的master进程（先fork出子进程再调用exec来运行新程序），这时旧版本的master
+进程必须要通过一种方式告诉新版本的master进程这是在平滑升级，并且传递一些必要的信息。Nginx是通过环境变量来传递这些
+信息的，新版本的master进程通过ngx_add_inherited_sockets方法由环境变量里读取平滑升级信息，并对旧版本Nginx服务监听的句柄做继承处理。
+*/
 static ngx_int_t
 ngx_add_inherited_sockets(ngx_cycle_t *cycle)
 {
@@ -437,7 +449,8 @@ ngx_add_inherited_sockets(ngx_cycle_t *cycle)
     ngx_int_t         s;
     ngx_listening_t  *ls;
 
-    inherited = (u_char *) getenv(NGINX_VAR);
+	//getenv()用来取得参数envvar环境变量的内容。参数envvar为环境变量的名称，如果该变量存在则会返回指向该内容的指针
+    inherited = (u_char *) getenv(NGINX_VAR); //获取环境变量 这里的"NGINX_VAR"是宏定义，值为"NGINX" 
 
     if (inherited == NULL) {
         return NGX_OK;
@@ -446,6 +459,8 @@ ngx_add_inherited_sockets(ngx_cycle_t *cycle)
     ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
                   "using inherited sockets from \"%s\"", inherited);
 
+	/* 如果是热升级nginx的时候inherit不为NULL，走到这里，配合ngx_exec_new_binary阅读 */
+	//初始化ngx_cycle.listening数组，并且数组中包含10个元素
     if (ngx_array_init(&cycle->listening, cycle->pool, 10,
                        sizeof(ngx_listening_t))
         != NGX_OK)
@@ -453,9 +468,9 @@ ngx_add_inherited_sockets(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
-    for (p = inherited, v = p; *p; p++) {
-        if (*p == ':' || *p == ';') {
-            s = ngx_atoi(v, p - v);
+    for (p = inherited, v = p; *p; p++) { //遍历环境变量  
+        if (*p == ':' || *p == ';') { //环境变量的值以':'or';'分开
+            s = ngx_atoi(v, p - v); //转换十进制sockets 
             if (s == NGX_ERROR) {
                 ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                               "invalid socket number \"%s\" in " NGINX_VAR
@@ -466,18 +481,18 @@ ngx_add_inherited_sockets(ngx_cycle_t *cycle)
 
             v = p + 1;
 
-            ls = ngx_array_push(&cycle->listening);
+            ls = ngx_array_push(&cycle->listening); //返回新分配的数组指针地址(在参考的blog里面这里解释可能有点错误)   
             if (ls == NULL) {
                 return NGX_ERROR;
             }
 
             ngx_memzero(ls, sizeof(ngx_listening_t));
 
-            ls->fd = (ngx_socket_t) s;
+            ls->fd = (ngx_socket_t) s; //保存socket文件描述符到数组中
         }
     }
 
-    ngx_inherited = 1;
+    ngx_inherited = 1; //表示已经的得到要继承的socket  
 
     return ngx_set_inherited_sockets(cycle);
 }
@@ -988,17 +1003,17 @@ ngx_core_module_create_conf(ngx_cycle_t *cycle)
      *     ccf->cpu_affinity = NULL;
      */
 
-    ccf->daemon = NGX_CONF_UNSET;
-    ccf->master = NGX_CONF_UNSET;
-    ccf->timer_resolution = NGX_CONF_UNSET_MSEC;
+    ccf->daemon = NGX_CONF_UNSET; //core/ngx_conf_file.h, -1
+    ccf->master = NGX_CONF_UNSET; // -1
+    ccf->timer_resolution = NGX_CONF_UNSET_MSEC; // -1
 
-    ccf->worker_processes = NGX_CONF_UNSET;
+    ccf->worker_processes = NGX_CONF_UNSET; 
     ccf->debug_points = NGX_CONF_UNSET;
 
     ccf->rlimit_nofile = NGX_CONF_UNSET;
     ccf->rlimit_core = NGX_CONF_UNSET;
 
-    ccf->user = (ngx_uid_t) NGX_CONF_UNSET_UINT;
+    ccf->user = (ngx_uid_t) NGX_CONF_UNSET_UINT; //-1
     ccf->group = (ngx_gid_t) NGX_CONF_UNSET_UINT;
 
     if (ngx_array_init(&ccf->env, cycle->pool, 1, sizeof(ngx_str_t))
