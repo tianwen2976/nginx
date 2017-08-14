@@ -58,6 +58,7 @@ static ngx_uint_t argument_number[] = {
 };
 
 
+/* 解析命令行参数信息到内存结构中 */
 char *
 ngx_conf_param(ngx_conf_t *cf)
 {
@@ -96,7 +97,36 @@ ngx_conf_param(ngx_conf_t *cf)
     return rv;
 }
 
+/*
+    8) HTTP框架开始循环解析nginx.conf文件中http{．．．}里面的所有配置项，
+过程到第19步才会返回。
+    9)配置文件解析器在检测到1个配置项后，会遍历所有的HTTP模块，
+ngx_command_t数组中的name项是否与配置项名相同。
+    10)如果找到有1个HTTP模块（如mytest模块）对这个配置项感兴趣（如test- myconfig
+配置项），就调用ngx_command_t结构中的set方法来处理。
+    11) set方法返回是否处理成功。如果处理失败，那么Nginx进程会停止。
+    12)配置文件解析器继续检测配置项。如果发现server{．．．）配置项，就会调用ngx_http_
+core_module模块来处理。因为ngx_http_core_module模块明确表示希望处理server{}块下
+的配置项。注意，这次调用到第18步才会返回。
+    13) ngx_http_core_module棋块在解析server{...}之前，也会如第3步一样建立ngx_
+http_conf_ctx_t结构，并建立数组保存所有HTTP模块返回的指针地址。然后，它会调用每
+个HTTP模块的create_srv_conf、create_loc_conf方法（如果实现的话）。
+    14)将上一步各HTTP模块返回的指针地址保存到ngx_http_conf_ctx_t对应的数组中。
+    15)开始调用配置文件解析器来处理server{．．．}里面的配置项，注意，这个过程在第17
+步返回。
+    16)继续重复第9步的过程，遍历nginx.conf中当前server{．．．）内的所有配置项。
+    17)配置文件解析器继续解析配置项，发现当前server块已经遍历到尾部，说明server
+块内的配置项处理完毕，返回ngx_http_core_module模块。
+    18) http core模块也处理完server配置项了，返回至配置文件解析器继续解析后面的配
+置项。
+    19)配置文件解析器继续解析配置项，这时发现处理到了http{．．．）的尾部，返回给
+HTTP框架继续处理。
+*/
 
+/*
+它是一个间接的递归函数，也就是说虽然我们在该函数体内看不到直接的对其本身的调用，但是它执行的一些函数（比如ngx_conf_handler）内又会
+调用ngx_conf_parse函数，因此形成递归，这一般在处理一些特殊配置指令或复杂配置项，比如指令include、events、http、 server、location等的处理时。
+*/ //ngx配置解析数据结构图解参考:http://tech.uc.cn/?p=300  这个比较全
 char *
 ngx_conf_parse(ngx_conf_t *cf, ngx_str_t *filename)
 {
@@ -108,6 +138,22 @@ ngx_conf_parse(ngx_conf_t *cf, ngx_str_t *filename)
     ngx_buf_t         buf, *tbuf;
     ngx_conf_file_t  *prev, conf_file;
     ngx_conf_dump_t  *cd;
+    /* ngx_conf_parse 这个函数来完成对配置文件的解析，其实这个函数不仅仅解析文件，还可以用来解析参数和块 */
+    /*
+    当执行到ngx_conf_parse函数内时，配置的解析可能处于三种状态：
+    第一种，刚开始解析一个配置文件，即此时的参数filename指向一个配置文件路径字符串，需要函数ngx_conf_parse打开该文件并获取相关
+    的文件信息以便下面代码读取文件内容并进行解析，除了在上面介绍的nginx启动时开始主配置文件解析时属于这种情况，还有当遇到include
+    指令时也将以这种状态调用ngx_conf_parse函数，因为include指令表示一个新的配置文件要开始解析。状态标记为type = parse_file;。
+    
+    第二种，开始解析一个配置块，即此时配置文件已经打开并且也已经对文件部分进行了解析，当遇到复杂配置项比如events、http等时，
+    这些复杂配置项的处理函数又会递归的调用ngx_conf_parse函数，此时解析的内容还是来自当前的配置文件，因此无需再次打开它，状态标记为type = parse_block;。
+    
+    第三种，开始解析配置项，这在对用户通过命令行-g参数输入的配置信息进行解析时处于这种状态，如：
+    nginx -g ‘daemon on;’
+    nginx在调用ngx_conf_parse函数对配置信息’daemon on;’进行解析时就是这种状态，状态标记为type = parse_param;。
+    前面说过，nginx配置是由标记组成的，在区分好了解析状态之后，接下来就要读取配置内容，而函数ngx_conf_read_token就是做这个事情的：
+    */
+
     enum {
         parse_file = 0,
         parse_block,
@@ -115,7 +161,7 @@ ngx_conf_parse(ngx_conf_t *cf, ngx_str_t *filename)
     } type;
 
 #if (NGX_SUPPRESS_WARN)
-    fd = NGX_INVALID_FILE;
+    fd = NGX_INVALID_FILE; //-1
     prev = NULL;
 #endif
 
@@ -204,6 +250,8 @@ ngx_conf_parse(ngx_conf_t *cf, ngx_str_t *filename)
 
 
     for ( ;; ) {
+		/* 读取文件中的内容放到缓冲区中，并进行解析，把解析的结果放到了cf->args 里面， 
+		*指令的每个单词都在数组中占一个位置，比如 set debug off  ，那么数组中存三个位置。*/
         rc = ngx_conf_read_token(cf);
 
         /*
@@ -461,8 +509,30 @@ invalid:
 
     return NGX_ERROR;
 }
+/*
+函数ngx_conf_read_token在读取了合适数量的标记token之后就开始下一步骤即对这些标记进行实际的处理。那多少才算是读取了合适数量的标记呢？区别对待，对于简单配置项则是读取其全部的标记，也就是遇到结束标记分号;为止，此时一条简单配置项的所有标记都被读取并存放在 cf->args数组内，因此可以调用其对应的回调函数进行实际的处理；对于复杂配置项则是读完其配置块前的所有标记，即遇到大括号{为止，此时复杂配置项处理函数所需要的标记都已读取到，而对于配置块{}内的标记将在接下来的函数ngx_conf_parse递归调用中继续处理，这可能是一个反复的过程。
+当然，函数ngx_conf_read_token也可能在其它情况下返回，比如配置文件格式出错、文件处理完（遇到文件结束）、块配置处理完（遇到大括号}），这几种返回情况的处理都很简单，不多详叙。
+对于简单/复杂配置项的处理，一般情况下，这是通过函数ngx_conf_handler来进行的，而也有特殊的情况，也就是配置项提供了自定义的处理函数，
+比如types指令。函数ngx_conf_handler也做了三件事情，首先，它需要找到当前解析出来的配置项所对应的 ngx_command_s结构体，
+前面说过该ngx_command_s包含有配置项的相关信息以及对应的回调实际处理函数。如果没找到配置项所对应的 ngx_command_s结构体，
+那么谁来处理这个配置项呢？自然是不行的，因此nginx就直接进行报错并退出程序。其次，找到当前解析出来的配置项所对应的ngx_command_s
+结构体之后还需进行一些有效性验证，因为ngx_command_s结构体内包含有配置项的相关信息，因此有效性验证是可以进行的，比如配置项的类型、
+位置、带参数的个数等等。只有经过了严格有效性验证的配置项才调用其对应的回调函数：
+rv = cmd->set(cf, cmd, conf);
+进行处理，这也就是第三件事情。在处理函数内，根据实际的需要又可能再次调用函数ngx_conf_parse，如此反复直至所有配置信息都被处理完。
+*/
 
+/*
+ 首先明确,什么是一个token: 
+ token是处在两个相邻空格,换行符,双引号,单引号等之间的字符串. 
+*/  
 
+/****************************************** 
+1.读取文件内容,每次读取一个buf大小(4K),如果文件内容不足4K则全部读取到buf中. 
+2.扫描buf中的内容,每次扫描一个token就会存入cf->args中,然后返回. 
+3.返回后调用ngx_conf_parse函数会调用*cf->handler和ngx_conf_handler(cf, rc)函数处理. 
+3.如果是复杂配置项,会调用上次执行的状态继续解析配置文件. 
+.*****************************************/ 
 static ngx_int_t
 ngx_conf_read_token(ngx_conf_t *cf)
 {
