@@ -13,23 +13,33 @@ static void *ngx_palloc_block(ngx_pool_t *pool, size_t size);
 static void *ngx_palloc_large(ngx_pool_t *pool, size_t size);
 
 
+/*
+ * ngx_create_pool：创建pool
+ * ngx_destory_pool：销毁 pool
+ * ngx_reset_pool：重置pool中的部分数据
+ * ngx_palloc/ngx_pnalloc：从pool中分配一块内存
+ * ngx_pool_cleanup_add：为pool添加cleanup数据
+ */
 ngx_pool_t *
 ngx_create_pool(size_t size, ngx_log_t *log)
 {
-    ngx_pool_t  *p;
+    ngx_pool_t  *p; // define ngx_pool_t ngx_pool_s //ngx_palloc.h
 
-    p = ngx_memalign(NGX_POOL_ALIGNMENT, size, log);
+    //// 分配一块 size 大小的内存  内存空间16字节对齐
+    p = ngx_memalign(NGX_POOL_ALIGNMENT, size, log); // os/unix/ngx_alloc.c
     if (p == NULL) {
         return NULL;
     }
 
+    // 对pool中的数据项赋初始值
+    // 可用空间要减去这个头部 首sizeof(ngx_pool_t)便是pool的header信息，header信息中的各个字段用于管理整个pool
     p->d.last = (u_char *) p + sizeof(ngx_pool_t);
     p->d.end = (u_char *) p + size;
     p->d.next = NULL;
     p->d.failed = 0;
 
     size = size - sizeof(ngx_pool_t);
-    p->max = (size < NGX_MAX_ALLOC_FROM_POOL) ? size : NGX_MAX_ALLOC_FROM_POOL;
+    p->max = (size < NGX_MAX_ALLOC_FROM_POOL) ? size : NGX_MAX_ALLOC_FROM_POOL; //不能超过NGX_MAX_ALLOC_FROM_POOL// pool 中最大可用大小
 
     p->current = p;
     p->chain = NULL;
@@ -37,7 +47,7 @@ ngx_create_pool(size_t size, ngx_log_t *log)
     p->cleanup = NULL;
     p->log = log;
 
-    return p;
+    return p; //指向空间最顶部头部
 }
 
 

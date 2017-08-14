@@ -67,8 +67,8 @@ ngx_module_t  ngx_errlog_module = {
 };
 
 
-static ngx_log_t        ngx_log;
-static ngx_open_file_t  ngx_log_file;
+static ngx_log_t        ngx_log; //指向的是ngx_log_file，见ngx_log_init
+static ngx_open_file_t  ngx_log_file; //NGX_ERROR_LOG_PATH文件 ngx_log_init
 ngx_uint_t              ngx_use_stderr = 1;
 
 
@@ -313,7 +313,7 @@ ngx_log_errno(u_char *buf, u_char *last, ngx_err_t err)
     return buf;
 }
 
-
+//打开NGX_ERROR_LOG_PATH文件
 ngx_log_t *
 ngx_log_init(u_char *prefix)
 {
@@ -358,23 +358,25 @@ ngx_log_init(u_char *prefix)
         }
 
         if (plen) {
-            name = malloc(plen + nlen + 2);
+            name = malloc(plen + nlen + 2); //"NGX_PREFIX/NGX_ERROR_LOG_PATH"
             if (name == NULL) {
                 return NULL;
             }
 
-            p = ngx_cpymem(name, prefix, plen);
+            p = ngx_cpymem(name, prefix, plen); //ngx_string.h
 
-            if (!ngx_path_separator(*(p - 1))) {
+            if (!ngx_path_separator(*(p - 1))) { //ngx_file.h 
                 *p++ = '/';
             }
 
-            ngx_cpystrn(p, (u_char *) NGX_ERROR_LOG_PATH, nlen + 1);
+            ngx_cpystrn(p, (u_char *) NGX_ERROR_LOG_PATH, nlen + 1); //ngx_string.c
 
             p = name;
         }
     }
 
+    // os/unix/ngx_files.h
+    // 打开logs/error.log文件
     ngx_log_file.fd = ngx_open_file(name, NGX_FILE_APPEND,
                                     NGX_FILE_CREATE_OR_OPEN,
                                     NGX_FILE_DEFAULT_ACCESS);

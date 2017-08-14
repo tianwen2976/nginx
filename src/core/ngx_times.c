@@ -194,9 +194,9 @@ ngx_time_update(void)
 
     ngx_current_msec = (ngx_msec_t) sec * 1000 + msec;
 
-    tp = &cached_time[slot];
+    tp = &cached_time[slot]; //读当前时间缓存 
 
-    if (tp->sec == sec) {
+    if (tp->sec == sec) { //如果缓存的时间秒=当前时间秒，直接更新当前slot元素的msec并返回，否则更新下一个slot数组元素；
         tp->msec = msec;
         ngx_unlock(&ngx_time_lock);
         return;
@@ -275,6 +275,18 @@ ngx_time_update(void)
                        months[tm.ngx_tm_mon - 1], tm.ngx_tm_mday,
                        tm.ngx_tm_hour, tm.ngx_tm_min, tm.ngx_tm_sec);
 
+    /*
+    可以看到ngx_memory_barrier()之后是四条赋值语句，如果没有 ngx_memory_barrier()，编译器可能会将 ngx_cached_time = tp ，
+    ngx_cached_http_time.data = p0，ngx_cached_err_log_time.data = p1， ngx_cached_http_log_time.data = p2 分别和之前的 
+    tp = &cached_time[slot] , p0 = &cached_http_time[slot][0] , p1 = &cached_err_log_time[slot][0] , p2 = &cached_http_log_time[slot][0] 
+    合并优化掉，这样的后果是 ngx_cached_time，ngx_cached_http_time，ngx_cached_err_log_time， ngx_cached_http_log_time这四个时间缓存的
+    不一致性时长增大了，因为在最后一个ngx_sprintf执行完后这四个时间缓存才一致，在这之前如果有其他地方正在读时间缓存就可能导致读到的时间
+    不正确或者不一致，而采用ngx_memory_barrier() 后，时间缓存更新到一致的 状态只需要几个时钟周期，因为只有四条赋值指令，显然在这么短的时
+    间内发生读时间缓存的概率会小的多了。从这里可以看出Igor考虑是非常细致的。 
+    */
+
+    //禁止编译器对后面的语句优化，如果没有这个限制，编译器可能将前后两部分代码合并，
+    //可能导致这6个时间更新出现间隔，期间若被读取会出现时间不一致的情况 
     ngx_memory_barrier();
 
     ngx_cached_time = tp;
@@ -287,9 +299,26 @@ ngx_time_update(void)
     ngx_unlock(&ngx_time_lock);
 }
 
+/*
+nginx出于性能考虑采用类似lib_event的方式，自己对时间进行了cache，用来减少对gettimeofday（）的调用，因为一般来说服务
+器对时间的精度要求不是特别的高，不过如果需要比较精确的timer，nginx还提供了一个timer_resolution指令用来设置时间精度，
+具体的机制再后面会做介绍
+*/
+
+/*
+ngx_time_update（）和ngx_time_sigsafe_update（）这两个函数的实现比较简单，但是还是有几个值得注意的地方，首先由于时间可能在信号处理中被更新，
+另外多线程的时候也可能同时更新时间（nginx现在虽然没有开放多线程，但是代码中有考虑），nginx使用了原子变量ngx_time_lock来对时间变量进行写加锁，
+而且nginx考虑到读时间的操作比较多，出于性能的原因没有对读进行加锁，而是采用维护多个时间slot的方式来尽量减少读访问冲突，基本原理就是，当读操作
+和写操作同时发生时（1，多线程时可能发生；2，当进程正在读时间缓存时，被一信号中断去执行信号处理函数，信号处理函数中会更新时间缓存），也就是读
+操作正在进行时（比如刚拷贝完ngx_cached_time->sec，或者拷贝ngx_cached_http_time.data进行到一半时），如果写操作改变了读操作的时间，读操作最终得
+到的时间就变混乱了。nginx这里采用了64个slot时间，也就是每次更新时间的时候都是更新下一个slot，如果读操作同时进行，读到的还是之前的slot，并没有
+被改变，当然这里只能是尽量减少了时间混乱的几率，因为slot的个数不是无限的，slot是循环的，写操作总有几率会写到读操作的slot上。不过nginx现在实际
+上并没有采用多线程的方式，而且在信号处理中只是更新cached_err_log_time，所以对其他时间变量的读访问是不会发生混乱的。 另一个地方是两个函数中都
+调用了 ngx_memory_barrier() ，实际上这个也是一个宏，它的具体定义和编译器及体系结构有关，gcc和x86环境下，定义如下：
+*/
 
 #if !(NGX_WIN32)
-
+//它会在每次执行信号处理函数的时候被调用，也就是在ngx_signal_handler（）函数中。
 void
 ngx_time_sigsafe_update(void)
 {

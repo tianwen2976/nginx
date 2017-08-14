@@ -65,10 +65,10 @@ struct ngx_cycle_s {
 
     ngx_cycle_t              *old_cycle;
 
-    ngx_str_t                 conf_file;
+    ngx_str_t                 conf_file; //配置文件相对于安装目录的路径名称 默认为安装路径下的NGX_CONF_PATH,见ngx_process_options 
     ngx_str_t                 conf_param;
-    ngx_str_t                 conf_prefix;
-    ngx_str_t                 prefix;
+    ngx_str_t                 conf_prefix; // nginx配置文件所在目录的路径  ngx_prefix 见ngx_process_options
+    ngx_str_t                 prefix; //nginx安装目录的路径 ngx_prefix 见ngx_process_options
     ngx_str_t                 lock_file;
     ngx_str_t                 hostname;
 };

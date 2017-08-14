@@ -193,8 +193,10 @@ main(int argc, char *const *argv)
     ngx_conf_dump_t  *cd;
     ngx_core_conf_t  *ccf;
 
-    ngx_debug_init();
+    ngx_debug_init(); // os/unix/ngx_freebsd_init.c
 
+    // os/unix/ngx_error.c
+    // 获取error 0-NGX_SYS_NERR 对应的描述字符串 NGX_SYS_NERR:135
     if (ngx_strerror_init() != NGX_OK) {
         return 1;
     }
@@ -274,12 +276,19 @@ main(int argc, char *const *argv)
     ngx_time_init(); //初始化nginx环境的当前时间
 
 #if (NGX_PCRE)
-    ngx_regex_init();
+    ngx_regex_init(); //core/ngx_regex.c 指定pcre_malloc, pcre_free 函数指针
 #endif
 
-    ngx_pid = ngx_getpid();
+    ngx_pid = ngx_getpid(); // get pid
+    printf("ngx_pid:%d\n", ngx_pid);
 
-    log = ngx_log_init(ngx_prefix);
+    /*
+    * 主进程启动的时候，此时还没有读取配置文件，即没有指定日志打印在哪里。nginx这时候虽然可以将一些出错内容或者结果输到标准输出，但是如果要记录一些系统初始化情况，
+    * socket监听状况，还是需要写到日志文件中去的。在nginx的main函数中，首先会调用ngx_log_init 函数，默认日志文件为：安装路径/logs/error.log，如果这个文件没有权限访问的话，
+    * 会直接报错退出。在mian函数结尾处，在ngx_master_process_cycle函数调用之前，会close掉这个日志文件。
+    */
+    printf("ngx_prefix: %s", ngx_prefix);
+    log = ngx_log_init(ngx_prefix); // core/ngx_log.c 打开error.log文件
     if (log == NULL) {
         return 1;
     }
@@ -294,11 +303,12 @@ main(int argc, char *const *argv)
      * ngx_process_options()
      */
 
+    // ngx_cycle_t --> ngx_cycle.h
     ngx_memzero(&init_cycle, sizeof(ngx_cycle_t));
     init_cycle.log = log;
-    ngx_cycle = &init_cycle;
+    ngx_cycle = &init_cycle; //ngx_cycle --> ngx_cycle.h
 
-    init_cycle.pool = ngx_create_pool(1024, log);
+    init_cycle.pool = ngx_create_pool(1024, log); // ngx_palloc.h 创建pool
     if (init_cycle.pool == NULL) {
         return 1;
     }
@@ -311,6 +321,9 @@ main(int argc, char *const *argv)
         return 1;
     }
 
+    // os/unix/ngx_posix_init.c
+    //调用ngx_os_init()初始化系统相关变量，
+    //如内存页面大小ngx_pagesize,ngx_cacheline_size,最大连接数ngx_max_sockets等；
     if (ngx_os_init(log) != NGX_OK) {
         return 1;
     }
@@ -872,6 +885,7 @@ ngx_save_argv(ngx_cycle_t *cycle, int argc, char *const *argv)
 }
 
 
+//调用ngx_process_options()初始化ngx_cycle的prefix, conf_prefix, conf_file, conf_param等字段；
 static ngx_int_t
 ngx_process_options(ngx_cycle_t *cycle)
 {
@@ -940,10 +954,12 @@ ngx_process_options(ngx_cycle_t *cycle)
         ngx_str_set(&cycle->conf_file, NGX_CONF_PATH);
     }
 
+    // ngx_conf_file.c 得到配置文件的绝对路径保存在cycle->conf_file中
     if (ngx_conf_full_name(cycle, &cycle->conf_file, 0) != NGX_OK) {
         return NGX_ERROR;
     }
 
+    // 生成配置文件前缀绝对路径 /usr/local/nginx/conf
     for (p = cycle->conf_file.data + cycle->conf_file.len - 1;
          p > cycle->conf_file.data;
          p--)
@@ -1090,6 +1106,7 @@ ngx_core_module_init_conf(ngx_cycle_t *cycle, void *conf)
         ngx_str_set(&ccf->lock_file, NGX_LOCK_PATH);
     }
 
+    // ngx_conf_file.c 
     if (ngx_conf_full_name(cycle, &ccf->lock_file, 0) != NGX_OK) {
         return NGX_CONF_ERROR;
     }

@@ -848,6 +848,7 @@ ngx_conf_full_name(ngx_cycle_t *cycle, ngx_str_t *name, ngx_uint_t conf_prefix)
 
     prefix = conf_prefix ? &cycle->conf_prefix : &cycle->prefix;
 
+    // ngx_file.c
     return ngx_get_full_name(cycle->pool, prefix, name);
 }
 

@@ -29,20 +29,26 @@ ngx_os_io_t ngx_os_io = {
 };
 
 
+//调用ngx_os_init()初始化系统相关变量，如内存页面大小ngx_pagesize,ngx_cacheline_size,最大连接数ngx_max_sockets等；
 ngx_int_t
 ngx_os_init(ngx_log_t *log)
 {
     ngx_uint_t  n;
 
 #if (NGX_HAVE_OS_SPECIFIC_INIT)
-    if (ngx_os_specific_init(log) != NGX_OK) {
+    if (ngx_os_specific_init(log) != NGX_OK) { //如果是linux，这里面赋值ngx_os_io = ngx_linux_io;
         return NGX_ERROR;
     }
 #endif
 
+    // ngx_setproctitle.h
     if (ngx_init_setproctitle(log) != NGX_OK) {
         return NGX_ERROR;
     }
+
+    /*
+     *返回一个分页的大小，单位为字节(Byte)。该值为系统的分页大小，不一定会和硬件分页大小相同。 
+    */
 
     ngx_pagesize = getpagesize();
     ngx_cacheline_size = NGX_CPU_CACHE_LINE;
@@ -51,7 +57,7 @@ ngx_os_init(ngx_log_t *log)
 
 #if (NGX_HAVE_SC_NPROCESSORS_ONLN)
     if (ngx_ncpu == 0) {
-        ngx_ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+        ngx_ncpu = sysconf(_SC_NPROCESSORS_ONLN); //获取CPU的个数
     }
 #endif
 
@@ -59,9 +65,10 @@ ngx_os_init(ngx_log_t *log)
         ngx_ncpu = 1;
     }
 
+    // core/ngx_cpuinfo.c
     ngx_cpuinfo();
 
-    if (getrlimit(RLIMIT_NOFILE, &rlmt) == -1) {
+    if (getrlimit(RLIMIT_NOFILE, &rlmt) == -1) { // 每个进程能打开的最多文件数。 
         ngx_log_error(NGX_LOG_ALERT, log, errno,
                       "getrlimit(RLIMIT_NOFILE) failed)");
         return NGX_ERROR;
